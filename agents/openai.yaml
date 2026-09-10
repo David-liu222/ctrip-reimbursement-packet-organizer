@@ -1,0 +1,4 @@
+interface:
+  display_name: "携程报销资料编排"
+  short_description: "按费用划分表顺序核验、分摊并编排携程机票和住宿报销整套资料"
+  default_prompt: "使用 $ctrip-reimbursement-packet-organizer 按费用划分表顺序核验并整理这套携程报销资料。"
