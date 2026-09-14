@@ -1,2 +1,5 @@
 .DS_Store
 *.inspect.ndjson
+.playwright-cli/
+capture_manifest.csv
+*_失败现场.png
