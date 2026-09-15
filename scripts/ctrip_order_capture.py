@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture Ctrip order-detail pages through a logged-in Playwright CLI session."""
+"""Print Ctrip order-detail pages to individual PDFs through a logged-in browser."""
 
 from __future__ import annotations
 
@@ -111,9 +111,7 @@ def refuse_git_output(output_dir: Path) -> None:
 def capture_code(
     order_no: str,
     orders_url: str,
-    screenshot_path: Path,
     pdf_path: Path,
-    diagnostic_path: Path,
     wait_ms: int,
     search_selector: str,
     submit_selector: str,
@@ -122,9 +120,7 @@ def capture_code(
     settings = {
         "orderNo": order_no,
         "ordersUrl": orders_url,
-        "screenshotPath": str(screenshot_path),
         "pdfPath": str(pdf_path),
-        "diagnosticPath": str(diagnostic_path),
         "waitMs": wait_ms,
         "searchSelector": search_selector,
         "submitSelector": submit_selector,
@@ -146,6 +142,7 @@ def capture_code(
     return null;
   }};
   try {{
+    await page.emulateMedia({{ media: 'screen' }});
     await page.goto(cfg.ordersUrl, {{ waitUntil: 'domcontentloaded', timeout: 45000 }});
     await sleep(cfg.waitMs);
     const scopes = [page, ...page.frames().filter(frame => frame !== page.mainFrame())];
@@ -165,7 +162,6 @@ def capture_code(
     }}
     if (!search) {{
       const text = await page.locator('body').innerText().catch(() => '');
-      await page.screenshot({{ path: cfg.diagnosticPath, fullPage: true }}).catch(() => {{}});
       const loginLike = /登录|验证码|扫码登录|sign\s*in/i.test(text) || /login|passport/i.test(page.url());
       return {{ status: loginLike ? 'login_required' : 'selector_needed', url: page.url(), error: '未找到订单号输入框' }};
     }}
@@ -185,7 +181,6 @@ def capture_code(
       if (await candidate.isVisible().catch(() => false)) {{ orderText = candidate; break; }}
     }}
     if (!orderText) {{
-      await page.screenshot({{ path: cfg.diagnosticPath, fullPage: true }}).catch(() => {{}});
       return {{ status: 'not_found', url: page.url(), error: '查询结果未显示该订单号' }};
     }}
 
@@ -227,12 +222,9 @@ def capture_code(
     await sleep(300);
     const bodyText = await page.locator('body').innerText().catch(() => '');
     if (!bodyText.includes(cfg.orderNo)) {{
-      await page.screenshot({{ path: cfg.diagnosticPath, fullPage: true }}).catch(() => {{}});
       return {{ status: 'verification_failed', url: page.url(), error: '详情页未能再次核验订单号' }};
     }}
-    await page.emulateMedia({{ media: 'screen' }});
-    await page.screenshot({{ path: cfg.screenshotPath, fullPage: true }});
-    let pdfStatus = 'saved';
+    await page.emulateMedia({{ media: 'print' }});
     try {{
       await page.pdf({{
         path: cfg.pdfPath,
@@ -241,18 +233,19 @@ def capture_code(
         margin: {{ top: '10mm', right: '8mm', bottom: '10mm', left: '8mm' }}
       }});
     }} catch (error) {{
-      pdfStatus = `failed: ${{error.message}}`;
+      await page.emulateMedia({{ media: 'screen' }}).catch(() => {{}});
+      return {{ status: 'print_failed', url: page.url(), error: error.message }};
     }}
-    return {{ status: 'captured', url: page.url(), title: await page.title(), pdfStatus }};
+    await page.emulateMedia({{ media: 'screen' }});
+    return {{ status: 'printed', url: page.url(), title: await page.title() }};
   }} catch (error) {{
-    await page.screenshot({{ path: cfg.diagnosticPath, fullPage: true }}).catch(() => {{}});
     return {{ status: 'error', url: page.url(), error: error.message }};
   }}
 }}"""
 
 
 def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
-    fields = ["seq", "order_no", "person", "status", "pdf", "screenshot", "url", "error"]
+    fields = ["seq", "order_no", "person", "status", "pdf", "url", "error"]
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -265,7 +258,7 @@ def command_login(args: argparse.Namespace) -> int:
         runner.run("goto", args.url)
     else:
         runner.open(args.url, args.profile, headed=True)
-    print("已打开独立的携程采集浏览器。请完成登录并进入“我的订单”页面，然后复制该页面网址用于 capture 命令。")
+    print("已打开独立的携程订单打印浏览器。请完成登录并进入“我的订单”页面，然后复制该页面网址用于 capture 命令。")
     return 0
 
 
@@ -279,39 +272,44 @@ def command_capture(args: argparse.Namespace) -> int:
         runner.open(args.orders_url, args.profile, headed=args.headed)
 
     manifest: list[dict[str, str]] = []
-    captured: dict[str, dict[str, str]] = {}
+    printed: dict[str, dict[str, str]] = {}
     for order in orders:
         seq = order["seq"]
         order_no = order["order_no"]
         base = f"{safe_filename(seq).zfill(3)}_{safe_filename(order_no)}"
         if order["person"]:
             base += f"_{safe_filename(order['person'])}"
-        row = {"seq": seq, "order_no": order_no, "person": order["person"], "status": "", "pdf": "", "screenshot": "", "url": "", "error": ""}
+        row = {"seq": seq, "order_no": order_no, "person": order["person"], "status": "", "pdf": "", "url": "", "error": ""}
         if order["skip"].strip().lower() in TRUTHY:
             row["status"] = "skipped"
             manifest.append(row)
+            write_manifest(output_dir / "capture_manifest.csv", manifest)
             continue
-        if order_no in captured:
-            first = captured[order_no]
-            row.update({"status": f"reused_from_seq_{first['seq']}", "pdf": first["pdf"], "screenshot": first["screenshot"], "url": first["url"]})
+        if order_no in printed:
+            first = printed[order_no]
+            row.update({"status": f"reused_from_seq_{first['seq']}", "pdf": first["pdf"], "url": first["url"]})
             manifest.append(row)
+            write_manifest(output_dir / "capture_manifest.csv", manifest)
             continue
 
-        screenshot = output_dir / f"{base}.png"
         pdf = output_dir / f"{base}.pdf"
-        diagnostic = output_dir / f"{base}_失败现场.png"
-        code = capture_code(order_no, args.orders_url, screenshot, pdf, diagnostic, args.wait_ms, args.search_selector, args.submit_selector, args.ready_selector)
+        partial_pdf = output_dir / f".{base}.partial.pdf"
+        partial_pdf.unlink(missing_ok=True)
+        code = capture_code(order_no, args.orders_url, partial_pdf, args.wait_ms, args.search_selector, args.submit_selector, args.ready_selector)
         completed = runner.run("run-code", code, check=False)
         result = parse_result(completed.stdout or completed.stderr)
         row["status"] = str(result.get("status", "cli_error"))
         row["url"] = str(result.get("url", ""))
         row["error"] = str(result.get("error", ""))
-        if screenshot.exists():
-            row["screenshot"] = screenshot.name
-        if pdf.exists() and pdf.stat().st_size > 1024:
+        if row["status"] == "printed" and partial_pdf.exists() and partial_pdf.stat().st_size > 1024:
+            partial_pdf.replace(pdf)
             row["pdf"] = pdf.name
-        if row["status"] == "captured":
-            captured[order_no] = row.copy()
+        elif row["status"] == "printed":
+            row["status"] = "print_failed"
+            row["error"] = "浏览器未生成有效 PDF 文件"
+        partial_pdf.unlink(missing_ok=True)
+        if row["status"] == "printed" and row["pdf"]:
+            printed[order_no] = row.copy()
         manifest.append(row)
         write_manifest(output_dir / "capture_manifest.csv", manifest)
         print(f"序号 {seq} / 订单 {order_no}: {row['status']}")
@@ -320,13 +318,13 @@ def command_capture(args: argparse.Namespace) -> int:
             break
 
     write_manifest(output_dir / "capture_manifest.csv", manifest)
-    failures = [row for row in manifest if row["status"] not in {"captured", "skipped"} and not row["status"].startswith("reused_from_seq_")]
+    failures = [row for row in manifest if row["status"] not in {"printed", "skipped"} and not row["status"].startswith("reused_from_seq_")]
     print(f"完成：{len(manifest)} 条；异常：{len(failures)} 条；清单：{output_dir / 'capture_manifest.csv'}")
     return 2 if failures else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="批量保存携程订单详情为 PDF 和整页 PNG。")
+    parser = argparse.ArgumentParser(description="按明细序号逐单打印携程订单详情为独立 PDF。")
     parser.add_argument("--pwcli", type=Path, default=default_pwcli(), help="playwright_cli.sh 路径")
     parser.add_argument("--session", default="ctrip-order-capture", help="Playwright CLI 会话名")
     parser.add_argument("--profile", type=Path, default=default_profile(), help="独立登录资料目录（不要放入 Git 仓库）")
@@ -336,7 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     login.add_argument("--url", default=DEFAULT_LOGIN_URL)
     login.set_defaults(func=command_login)
 
-    capture = subparsers.add_parser("capture", help="按 CSV 批量抓取订单详情")
+    capture = subparsers.add_parser("capture", help="按 CSV 序号逐单打印订单详情")
     capture.add_argument("--input", type=Path, required=True, help="包含 seq、order_no 的 CSV")
     capture.add_argument("--orders-url", required=True, help="登录后的“我的订单”页面网址")
     capture.add_argument("--output-dir", type=Path, required=True, help="仓库外的输出目录")

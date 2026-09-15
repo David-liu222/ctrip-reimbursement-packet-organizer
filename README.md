@@ -22,9 +22,9 @@
 
 - `SKILL.md`：Skill 入口与完整工作流
 - `references/rules.md`：费用分摊、审批、住宿超标、订单及发票规则
-- `references/order-capture.md`：携程订单详情自动采集说明
-- `scripts/ctrip_order_capture.py`：按序号和订单号批量保存订单详情
-- `assets/order-capture-template.csv`：订单采集清单模板
+- `references/order-capture.md`：携程订单详情逐单打印 PDF 说明
+- `scripts/ctrip_order_capture.py`：按序号和订单号逐单打印独立 PDF
+- `assets/order-capture-template.csv`：订单打印清单模板
 - `assets/费用划分表版式模板.xlsx`：已去除实际月份、公司、金额和序号区间的空白模板
 - `agents/openai.yaml`：Codex 界面元数据
 

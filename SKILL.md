@@ -18,7 +18,7 @@ description: "按费用划分表整理中国企业携程报销整套资料：编
 
 开始处理前阅读 [报销核验与编排规则](references/rules.md)。需要新建或改写费用划分表时，使用 [费用划分表版式模板.xlsx](assets/费用划分表版式模板.xlsx) 作为格式参考；模板已去除示例月份、公司、金额和序号区间。
 
-如果酒店订单详情不能下载、需要逐单截图，阅读 [携程订单详情自动采集](references/order-capture.md)，使用 `scripts/ctrip_order_capture.py` 在用户本人登录的网页端批量保存 PDF 和整页 PNG。验证码、短信和扫码必须由用户处理；不得绕过平台风控。
+如果酒店订单详情不能下载、需要逐单打印或另存为 PDF，阅读 [携程订单详情逐单打印](references/order-capture.md)，使用 `scripts/ctrip_order_capture.py` 在用户本人登录的网页端按明细序号一单一单保存独立 PDF。验证码、短信和扫码必须由用户处理；不得绕过平台风控。
 
 ## 工作流
 
